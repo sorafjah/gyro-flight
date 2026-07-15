@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>フライトシミュレーター</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+  }
+}
+</script>
+<style>
+  :root{
+    --accent:#ff8c3c;
+    --accent-dark:#e06a1c;
+    --panel-bg:rgba(12,24,40,0.82);
+    --panel-border:rgba(255,255,255,0.18);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    overflow:hidden; overscroll-behavior:none;
+    background:#7ec8f2;
+    touch-action:manipulation;
+    position:fixed; inset:0;
+    font-family:'BIZ UDPGothic','Hiragino Sans','Yu Gothic',sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #game-canvas{ position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+
+  .screen{
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px;
+    padding:24px; text-align:center; color:#fff;
+    background:linear-gradient(180deg, rgba(70,150,220,0.55), rgba(10,30,55,0.75));
+  }
+  .hidden{ display:none !important; }
+
+  .title-logo{
+    font-size:clamp(28px,6vw,46px); font-weight:700; letter-spacing:2px;
+    text-shadow:0 3px 10px rgba(0,0,0,0.35);
+  }
+  .title-sub{ font-size:14px; opacity:0.9; margin-top:-10px; }
+
+  .btn{
+    min-height:56px; min-width:220px; padding:12px 28px;
+    border-radius:16px; border:none; cursor:pointer;
+    font-family:inherit; font-size:18px; font-weight:700;
+    background:var(--accent); color:#1a1200;
+    box-shadow:0 6px 0 var(--accent-dark), 0 8px 16px rgba(0,0,0,0.3);
+    transition:transform 0.06s ease;
+  }
+  .btn:active{ transform:translateY(4px); box-shadow:0 2px 0 var(--accent-dark), 0 4px 10px rgba(0,0,0,0.3); }
+  .btn.secondary{
+    background:rgba(255,255,255,0.14); color:#fff;
+    box-shadow:0 6px 0 rgba(0,0,0,0.25), 0 8px 16px rgba(0,0,0,0.25);
+  }
+  .btn.secondary:active{ box-shadow:0 2px 0 rgba(0,0,0,0.25); }
+  .btn-row{ display:flex; flex-direction:column; gap:14px; width:min(360px,80vw); }
+
+  .panel{
+    background:var(--panel-bg); border:1px solid var(--panel-border);
+    border-radius:20px; padding:26px 22px; width:min(420px,86vw);
+    backdrop-filter:blur(6px);
+  }
+  .panel p{ line-height:1.7; font-size:15px; margin:0 0 18px; }
+
+  #hud{
+    position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between;
+    align-items:flex-start; padding:14px 16px; pointer-events:none; z-index:5;
+  }
+  #hud .hud-box{
+    pointer-events:auto; background:var(--panel-bg); border:1px solid var(--panel-border);
+    border-radius:14px; padding:10px 16px; color:#fff; font-size:15px; line-height:1.5;
+  }
+  #hud-end-btn{
+    pointer-events:auto; min-height:44px; min-width:44px; padding:8px 18px;
+    border-radius:12px; border:none; background:rgba(255,255,255,0.16); color:#fff;
+    font-family:inherit; font-size:14px; font-weight:700;
+  }
+  #collision-flash{
+    position:fixed; top:38%; left:50%; transform:translate(-50%,-50%);
+    font-size:clamp(30px,8vw,54px); font-weight:700; color:#ff4d4d;
+    text-shadow:0 0 12px rgba(0,0,0,0.6); opacity:0; pointer-events:none; z-index:6;
+  }
+  @keyframes flashPop{
+    0%{ opacity:0; transform:translate(-50%,-50%) scale(0.7); }
+    18%{ opacity:1; transform:translate(-50%,-50%) scale(1.08); }
+    70%{ opacity:1; }
+    100%{ opacity:0; transform:translate(-50%,-50%) scale(1); }
+  }
+  .flash-on{ animation:flashPop 0.7s ease-out; }
+
+  #joystick-wrap{
+    position:fixed; left:22px; bottom:26px; width:180px; height:64px;
+    background:rgba(0,0,0,0.28); border:1px solid rgba(255,255,255,0.3);
+    border-radius:32px; z-index:5; touch-action:none;
+  }
+  #joystick-knob{
+    position:absolute; top:6px; left:6px; width:52px; height:52px; border-radius:50%;
+    background:var(--accent); box-shadow:0 3px 8px rgba(0,0,0,0.4);
+  }
+  #joystick-hint{
+    position:fixed; left:22px; bottom:96px; color:#fff; font-size:12px;
+    background:rgba(0,0,0,0.35); padding:4px 10px; border-radius:10px; z-index:5;
+  }
+
+  #orientation-hint{
+    position:fixed; inset:0; background:rgba(5,15,30,0.92); color:#fff;
+    display:none; align-items:center; justify-content:center; text-align:center;
+    font-size:18px; z-index:20; padding:30px;
+  }
+  @media (orientation:portrait){
+    #orientation-hint.enabled{ display:flex; }
+  }
+
+  .result-title{ font-size:clamp(26px,7vw,40px); font-weight:700; }
+  .result-main{ font-size:20px; font-weight:700; }
+  .result-sub{ font-size:15px; opacity:0.9; }
+</style>
+</head>
+<body>
+<!-- build: 2026-07-15 -->
+
+<canvas id="game-canvas"></canvas>
+
+<div id="orientation-hint" class="enabled">横向きにすると操縦しやすくなります</div>
+
+<!-- タイトル画面 -->
+<div id="screen-title" class="screen">
+  <div class="title-logo">簡易フライトシミュレーター</div>
+  <div class="title-sub">iPadを傾けて操縦いたします</div>
+  <div class="btn-row">
+    <button class="btn" id="btn-mode-timeattack">タイムアタック（90秒でゴール）</button>
+    <button class="btn" id="btn-mode-endless">エンドレス（飛べるだけ飛ぶ）</button>
+  </div>
+</div>
+
+<!-- 確認・キャリブレーション画面 -->
+<div id="screen-confirm" class="screen hidden">
+  <div class="panel">
+    <p id="confirm-mode-text">モードで開始いたします。</p>
+    <p>iPadを机と水平に構えた状態でボタンをタップしてください。その姿勢を基準にキャリブレーションいたします。</p>
+  </div>
+  <div class="btn-row">
+    <button class="btn" id="btn-start">操縦を始める</button>
+    <button class="btn secondary" id="btn-confirm-back">戻る</button>
+  </div>
+</div>
+
+<!-- プレイ中HUD -->
+<div id="hud" class="hidden">
+  <div class="hud-box">
+    <div id="hud-primary">残り時間: 90.0秒</div>
+    <div id="hud-secondary">ゴールまで: 0m</div>
+    <div id="hud-collision">衝突: 0回</div>
+  </div>
+  <button id="hud-end-btn" class="hidden">終了して結果を見る</button>
+</div>
+
+<div id="collision-flash">衝突！</div>
+
+<!-- 仮想スティック（ジャイロ不可時のフォールバック／左右のみ） -->
+<div id="joystick-hint" class="hidden">ジャイロが利用できないため仮想スティックで操縦いたします（左右のみ）</div>
+<div id="joystick-wrap" class="hidden">
+  <div id="joystick-knob"></div>
+</div>
+
+<!-- 結果画面 -->
+<div id="screen-result" class="screen hidden">
+  <div class="result-title" id="result-title">結果</div>
+  <div class="result-main" id="result-main"></div>
+  <div class="result-sub" id="result-sub"></div>
+  <div class="btn-row">
+    <button class="btn" id="btn-retry">リトライ</button>
+    <button class="btn secondary" id="btn-back-title">モード選択に戻る</button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "three";
+
+/* ==================================================================
+   簡易フライトシミュレーター（障害物回避・長距離飛行）
+   - iPad Safari（授業使用）を前提とした単一HTML完結ゲーム
+   - 飛行モデルは物理演算エンジンを使わない簡易レール式
+     （ロール入力→左右速度、ピッチ入力→上下速度、前進速度は一定）
+   - オブジェクト（障害物）の位置は生成時に決めた x, y, z の数値が
+     そのまま唯一の内部データモデルであり、メッシュの.positionは
+     生成時に一度だけこの値で設定される（以後ズレは発生しない）
+   ================================================================== */
+
+/* ---------------- 設定値 ---------------- */
+const CFG = {
+  baseSpeed: 40,               // 巡航前進速度 (units/sec)
+  maxLateralSpeed: 20,         // 最大左右速度
+  maxVerticalSpeed: 14,        // 最大上下速度
+  maxBank: THREE.MathUtils.degToRad(50),
+  maxPitchVisual: THREE.MathUtils.degToRad(22),
+  smoothingRate: 6,            // 入力の追従の速さ
+  altMin: 4,
+  altMax: 55,
+  lateralLimit: 22,
+  startAltitude: 20,
+  spawnAheadEndless: 300,      // エンドレスで前方何mまで生成しておくか
+  spawnBehindMargin: 30,       // 自機より後方何mで削除するか
+  spawnIntervalStart: 46,
+  spawnIntervalMin: 30,
+  densityRampTime: 90,         // 何秒かけて密度を最大にするか（エンドレス）
+  courseLength: 3600,          // タイムアタック全長（baseSpeed×90秒）
+  timeBudget: 90,
+  collisionPenaltySeconds: 3,  // タイムアタックの衝突ペナルティ（秒）
+  collisionPenaltyDuration: 0.7, // 衝突後の操作抑制・減速時間
+  collisionSpeedFactor: 0.35,  // 衝突後の減速係数
+  playerRadius: 1.6,
+  gateRingRadius: 6,
+  gateTubeRadius: 1.1,
+};
+
+function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+function rand(min, max){ return min + Math.random() * (max - min); }
+
+/* ---------------- DOM参照 ---------------- */
+const canvas = document.getElementById('game-canvas');
+const screenTitle = document.getElementById('screen-title');
+const screenConfirm = document.getElementById('screen-confirm');
+const screenResult = document.getElementById('screen-result');
+const hud = document.getElementById('hud');
+const hudPrimary = document.getElementById('hud-primary');
+const hudSecondary = document.getElementById('hud-secondary');
+const hudCollision = document.getElementById('hud-collision');
+const hudEndBtn = document.getElementById('hud-end-btn');
+const confirmModeText = document.getElementById('confirm-mode-text');
+const collisionFlash = document.getElementById('collision-flash');
+const joystickWrap = document.getElementById('joystick-wrap');
+const joystickKnob = document.getElementById('joystick-knob');
+const joystickHint = document.getElementById('joystick-hint');
+const resultTitle = document.getElementById('result-title');
+const resultMain = document.getElementById('result-main');
+const resultSub = document.getElementById('result-sub');
+
+/* ---------------- iPad対策：ダブルタップズーム／ピンチ／バウンス防止 ---------------- */
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('gestureend', e => e.preventDefault());
+let lastTouchEnd = 0;
+document.addEventListener('touchend', function(e){
+  const now = Date.now();
+  if (now - lastTouchEnd <= 300) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive:false });
+document.addEventListener('touchmove', function(e){
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive:false });
+document.body.addEventListener('touchmove', function(e){
+  // ジョイスティックなど個別要素側では独自にドラッグ量を取得するため
+  // ここではページ全体のスクロール／バウンスのみを止める
+  e.preventDefault();
+}, { passive:false });
+
+/* ---------------- Three.js 基本セットアップ ---------------- */
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8ecbff);
+scene.fog = new THREE.Fog(0x8ecbff, 140, 420);
+
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 2000);
+camera.position.set(0, CFG.startAltitude+5, -14);
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x446688, 1.0);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+sun.position.set(60, 120, -40);
+scene.add(sun);
+
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', onResize);
+function onResize(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/* ---------------- 地面 ---------------- */
+const groundGeo = new THREE.PlaneGeometry(500, 4000, 1, 1);
+const groundMat = new THREE.MeshStandardMaterial({ color:0x4c9a5b, roughness:1 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI/2;
+ground.position.y = 0;
+scene.add(ground);
+
+/* ---------------- 自機（簡易ローポリ飛行機） ---------------- */
+function buildPlane(){
+  const group = new THREE.Group();
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color:0x2b5fa8, roughness:0.5 });
+  const wingMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.6 });
+  const accentMat = new THREE.MeshStandardMaterial({ color:0xff8c3c, roughness:0.5 });
+  const glassMat = new THREE.MeshStandardMaterial({ color:0x9fe0ff, roughness:0.2, metalness:0.2 });
+
+  const fuselage = new THREE.Mesh(new THREE.CapsuleGeometry(0.6, 2.4, 4, 8), bodyMat);
+  fuselage.rotation.x = Math.PI/2;
+  group.add(fuselage);
+
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.9, 8), accentMat);
+  nose.rotation.x = Math.PI/2;
+  nose.position.z = 1.9;
+  group.add(nose);
+
+  const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 8), glassMat);
+  canopy.position.set(0, 0.45, 0.3);
+  canopy.scale.set(1, 0.8, 1.3);
+  group.add(canopy);
+
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.12, 0.9), wingMat);
+  wing.position.set(0, -0.05, 0.1);
+  group.add(wing);
+
+  const tailWing = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 0.5), wingMat);
+  tailWing.position.set(0, 0.1, -1.6);
+  group.add(tailWing);
+
+  const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.8, 0.6), accentMat);
+  tailFin.position.set(0, 0.5, -1.7);
+  group.add(tailFin);
+
+  const propeller = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), new THREE.MeshStandardMaterial({ color:0x222222 }));
+  propeller.position.z = 2.35;
+  group.add(propeller);
+
+  group.userData.propeller = propeller;
+  return group;
+}
+const plane = buildPlane();
+plane.position.set(0, CFG.startAltitude, 0);
+scene.add(plane);
+
+/* ---------------- 障害物 共有ジオメトリ／マテリアル ---------------- */
+const rockGeo = new THREE.IcosahedronGeometry(1, 0);
+const rockMat = new THREE.MeshStandardMaterial({ color:0x8a7a6a, flatShading:true, roughness:1 });
+const gateGeo = new THREE.TorusGeometry(CFG.gateRingRadius, CFG.gateTubeRadius, 8, 20);
+const gateMat = new THREE.MeshStandardMaterial({ color:0x35c2c2, roughness:0.4 });
+const cloudGeo = new THREE.IcosahedronGeometry(1, 0);
+const cloudMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:1, transparent:true, opacity:0.85 });
+const finishGeo = new THREE.TorusGeometry(11, 1.3, 8, 24);
+const finishMat = new THREE.MeshStandardMaterial({ color:0xffd23c, emissive:0x553900, roughness:0.4 });
+
+/* ---------------- ゲーム状態 ---------------- */
+const G = {
+  phase: 'title',        // title | confirm | playing | result
+  mode: null,             // timeattack | endless
+  frames: 0,
+  elapsed: 0,
+  distance: 0,
+  collisionCount: 0,
+  penaltySeconds: 0,
+  collisionTimer: 0,
+  cleared: false,
+  gameOverReason: null,   // 'timeup' | null
+  input: { roll:0, pitch:0 },
+  smooth: { roll:0, pitch:0 },
+  controlSource: 'gyro',  // gyro | joystick | api
+  calib: { beta0:0, gamma0:0 },
+  obstacles: [],          // {mesh, type, x, y, z, hit, radius?, ringRadius?, tubeRadius?}
+  nextSpawnZ: 0,
+  finishMesh: null,
+};
+window.__game = {
+  state: G,
+  plane, camera, obstacles: G.obstacles,
+  note: '障害物のmesh.positionは生成時のx,y,z(数値)がそのまま唯一の内部データモデルです。自機のplane.positionも同様に直接値を持っています。',
+  api: {}
+};
+
+/* ---------------- 障害物 生成／回収（プール方式） ---------------- */
+const pools = { rock:[], gate:[], cloud:[] };
+function takeFromPool(type){
+  const p = pools[type];
+  if (p.length){
+    const mesh = p.pop();
+    mesh.visible = true;
+    return mesh;
+  }
+  if (type === 'rock'){
+    const m = new THREE.Mesh(rockGeo, rockMat);
+    return m;
+  } else if (type === 'gate'){
+    const m = new THREE.Mesh(gateGeo, gateMat);
+    return m;
+  } else {
+    const m = new THREE.Mesh(cloudGeo, cloudMat);
+    return m;
+  }
+}
+function spawnObstacleAt(x, y, z, type){
+  const mesh = takeFromPool(type);
+  mesh.position.set(x, y, z);
+  if (type === 'rock'){
+    const r = rand(1.6, 3.2);
+    mesh.scale.setScalar(r);
+    mesh.userData.radius = r;
+  } else {
+    mesh.scale.setScalar(1);
+  }
+  if (!mesh.parent) scene.add(mesh);
+  const entry = { mesh, type, x, y, z, hit:false, radius: mesh.userData.radius || 0 };
+  G.obstacles.push(entry);
+  return entry;
+}
+function recycleObstacleAt(index){
+  const entry = G.obstacles[index];
+  entry.mesh.visible = false;
+  pools[entry.type].push(entry.mesh);
+  G.obstacles.splice(index, 1);
+}
+function clearAllObstacles(){
+  for (let i = G.obstacles.length - 1; i >= 0; i--) recycleObstacleAt(i);
+}
+
+function spawnRandomObstacleAt(z){
+  const roll = Math.random();
+  const yRange = (G.controlSource === 'joystick')
+    ? [CFG.startAltitude - 3, CFG.startAltitude + 3]  // 仮想スティックは左右のみのため高度帯を狭くする
+    : [10, 44];
+  if (roll < 0.48){
+    spawnObstacleAt(rand(-17, 17), rand(yRange[0], yRange[1]), z, 'rock');
+  } else if (roll < 0.78){
+    spawnObstacleAt(rand(-9, 9), rand(Math.max(14,yRange[0]+4), Math.min(42,yRange[1]+10)), z, 'gate');
+  } else {
+    spawnObstacleAt(rand(-45, 45), rand(30, 70), z, 'cloud');
+  }
+}
+
+/* ---------------- タイムアタック用コース事前生成 ---------------- */
+function buildTimeAttackCourse(){
+  let z = 60;
+  while (z < CFG.courseLength - 60){
+    spawnRandomObstacleAt(z);
+    z += CFG.spawnIntervalStart;
+  }
+  if (!G.finishMesh){
+    G.finishMesh = new THREE.Mesh(finishGeo, finishMat);
+    scene.add(G.finishMesh);
+  }
+  G.finishMesh.position.set(0, CFG.startAltitude, CFG.courseLength);
+  G.finishMesh.visible = true;
+}
+
+/* ---------------- パーティクル（衝突演出） ---------------- */
+const burstGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+const burstMat = new THREE.MeshBasicMaterial({ color:0xffaa33 });
+const activeBursts = [];
+function spawnParticleBurst(pos){
+  const group = new THREE.Group();
+  const particles = [];
+  for (let i = 0; i < 14; i++){
+    const m = new THREE.Mesh(burstGeo, burstMat);
+    m.position.copy(pos);
+    group.add(m);
+    particles.push({
+      mesh:m,
+      vel:new THREE.Vector3(rand(-9,9), rand(2,9), rand(-9,9)),
+      life:0.6,
+    });
+  }
+  scene.add(group);
+  activeBursts.push({ group, particles });
+}
+function updateBursts(dt){
+  for (let i = activeBursts.length - 1; i >= 0; i--){
+    const b = activeBursts[i];
+    let allDead = true;
+    for (const p of b.particles){
+      if (p.life > 0){
+        p.vel.y -= 20 * dt;
+        p.mesh.position.addScaledVector(p.vel, dt);
+        p.life -= dt;
+        const s = Math.max(0, p.life/0.6);
+        p.mesh.scale.setScalar(s);
+        if (p.life > 0) allDead = false;
+      }
+    }
+    if (allDead){ scene.remove(b.group); activeBursts.splice(i,1); }
+  }
+}
+
+/* ---------------- オーディオ（Web Audio API・外部音源なし） ---------------- */
+let audioCtx = null;
+let engineOsc = null, engineGain = null;
+function ensureAudio(){
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+function startEngineSound(){
+  ensureAudio();
+  stopEngineSound();
+  engineOsc = audioCtx.createOscillator();
+  engineOsc.type = 'sawtooth';
+  engineOsc.frequency.value = 90;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 700;
+  engineGain = audioCtx.createGain();
+  engineGain.gain.value = 0.05;
+  engineOsc.connect(filter).connect(engineGain).connect(audioCtx.destination);
+  engineOsc.start();
+}
+function stopEngineSound(){
+  if (engineOsc){
+    try { engineOsc.stop(); } catch(e){}
+    engineOsc.disconnect();
+    engineOsc = null;
+  }
+}
+function updateEngineSound(speedFactor){
+  if (engineOsc) engineOsc.frequency.value = 75 + speedFactor * 45;
+}
+function playCollisionSound(){
+  ensureAudio();
+  const dur = 0.3;
+  const bufferSize = Math.floor(audioCtx.sampleRate * dur);
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = (Math.random()*2-1) * (1 - i/bufferSize);
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0.35;
+  noise.connect(noiseGain).connect(audioCtx.destination);
+  noise.start();
+  const thump = audioCtx.createOscillator();
+  thump.type = 'sine';
+  thump.frequency.setValueAtTime(130, audioCtx.currentTime);
+  thump.frequency.exponentialRampToValueAtTime(35, audioCtx.currentTime + 0.25);
+  const thumpGain = audioCtx.createGain();
+  thumpGain.gain.value = 0.5;
+  thump.connect(thumpGain).connect(audioCtx.destination);
+  thump.start();
+  thump.stop(audioCtx.currentTime + 0.3);
+}
+function playGoalSound(){
+  ensureAudio();
+  const notes = [523.25, 659.25, 783.99, 1046.5];
+  notes.forEach((freq, i) => {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    const g = audioCtx.createGain();
+    const t = audioCtx.currentTime + i * 0.12;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.36);
+  });
+}
+
+/* ---------------- ジャイロ入力 ---------------- */
+let gyroDataReceived = false;
+let calibrated = false;
+let gyroWaitTimer = null;
+
+function onDeviceOrientation(e){
+  if (e.beta === null || e.gamma === null) return;
+  gyroDataReceived = true;
+  if (!calibrated){
+    G.calib.beta0 = e.beta;
+    G.calib.gamma0 = e.gamma;
+    calibrated = true;
+  }
+  const dGamma = e.gamma - G.calib.gamma0; // 左右の傾き
+  const dBeta = e.beta - G.calib.beta0;    // 前後の傾き
+  G.input.roll = clamp(dGamma / 28, -1, 1);
+  G.input.pitch = clamp(-dBeta / 24, -1, 1);
+}
+
+function enableJoystickFallback(){
+  G.controlSource = 'joystick';
+  joystickWrap.classList.remove('hidden');
+  joystickHint.classList.remove('hidden');
+  setTimeout(() => joystickHint.classList.add('hidden'), 3500);
+}
+
+let joystickActive = false;
+let joystickCenterX = 0;
+const joystickRadius = 74; // 移動可能範囲(px)
+function joystickSetFromClientX(clientX){
+  const rect = joystickWrap.getBoundingClientRect();
+  const centerX = rect.left + rect.width/2;
+  let dx = clientX - centerX;
+  dx = clamp(dx, -joystickRadius, joystickRadius);
+  joystickKnob.style.transform = `translateX(${dx}px)`;
+  G.input.roll = clamp(dx / joystickRadius, -1, 1);
+  G.input.pitch = 0;
+}
+joystickWrap.addEventListener('touchstart', e => {
+  joystickActive = true;
+  joystickSetFromClientX(e.touches[0].clientX);
+}, { passive:true });
+joystickWrap.addEventListener('touchmove', e => {
+  if (!joystickActive) return;
+  joystickSetFromClientX(e.touches[0].clientX);
+}, { passive:true });
+joystickWrap.addEventListener('touchend', () => {
+  joystickActive = false;
+  joystickKnob.style.transform = 'translateX(0px)';
+  G.input.roll = 0;
+  G.input.pitch = 0;
+}, { passive:true });
+
+/* 操縦方式（ジャイロ／仮想スティック）が確定するまでは障害物のあるコースを
+   生成しない。先に生成すると、後からフォールバック判定が確定した際に
+   （高度操作ができない仮想スティックなのに）避けられない高さの障害物が
+   既に配置されている事故が起きるため、onResolvedで確定後にbeginPlayingする。 */
+function requestControlAndBegin(onResolved){
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+    DeviceOrientationEvent.requestPermission().then(resp => {
+      if (resp === 'granted') attachGyroWithFallback(onResolved);
+      else { enableJoystickFallback(); onResolved(); }
+    }).catch(() => { enableJoystickFallback(); onResolved(); });
+  } else if (typeof DeviceOrientationEvent !== 'undefined'){
+    attachGyroWithFallback(onResolved);
+  } else {
+    enableJoystickFallback();
+    onResolved();
+  }
+}
+function attachGyroWithFallback(onResolved){
+  G.controlSource = 'gyro';
+  window.addEventListener('deviceorientation', onDeviceOrientation);
+  clearTimeout(gyroWaitTimer);
+  gyroWaitTimer = setTimeout(() => {
+    if (!gyroDataReceived){
+      window.removeEventListener('deviceorientation', onDeviceOrientation);
+      enableJoystickFallback();
+    }
+    onResolved();
+  }, 1000);
+}
+
+/* ---------------- 画面遷移 ---------------- */
+let pendingMode = null;
+function showScreen(id){
+  [screenTitle, screenConfirm, screenResult].forEach(s => s.classList.add('hidden'));
+  hud.classList.add('hidden');
+  joystickWrap.classList.add('hidden');
+  if (id) document.getElementById(id).classList.remove('hidden');
+}
+function selectMode(mode){
+  pendingMode = mode;
+  confirmModeText.textContent = (mode === 'timeattack')
+    ? 'タイムアタックモードで開始いたします（目標90秒でゴール）。'
+    : 'エンドレスモードで開始いたします（自由に飛び続けます）。';
+  G.phase = 'confirm';
+  showScreen('screen-confirm');
+}
+document.getElementById('btn-mode-timeattack').addEventListener('click', () => selectMode('timeattack'));
+document.getElementById('btn-mode-endless').addEventListener('click', () => selectMode('endless'));
+document.getElementById('btn-confirm-back').addEventListener('click', () => {
+  G.phase = 'title';
+  showScreen('screen-title');
+});
+const btnStart = document.getElementById('btn-start');
+btnStart.addEventListener('click', () => {
+  ensureAudio(); // タップ操作の同期処理内でAudioContextを起動・解錠しておく（iOSの自動再生制限対策）
+  G.mode = pendingMode;
+  calibrated = false; // タップした瞬間の姿勢を基準にする
+  gyroDataReceived = false;
+  btnStart.disabled = true;
+  btnStart.textContent = '準備中...';
+  requestControlAndBegin(() => {
+    btnStart.disabled = false;
+    btnStart.textContent = '操縦を始める';
+    beginPlaying();
+  });
+});
+document.getElementById('btn-retry').addEventListener('click', () => {
+  calibrated = false;
+  beginPlaying();
+});
+document.getElementById('btn-back-title').addEventListener('click', () => {
+  G.phase = 'title';
+  showScreen('screen-title');
+});
+hudEndBtn.addEventListener('click', () => {
+  if (G.mode === 'endless' && G.phase === 'playing') finishPlaying();
+});
+
+function beginPlaying(){
+  ensureAudio();
+  clearAllObstacles();
+  if (G.finishMesh) G.finishMesh.visible = false;
+
+  plane.position.set(0, CFG.startAltitude, 0);
+  plane.rotation.set(0, 0, 0);
+  camera.position.set(0, CFG.startAltitude+5, -14);
+
+  G.distance = 0;
+  G.elapsed = 0;
+  G.collisionCount = 0;
+  G.penaltySeconds = 0;
+  G.collisionTimer = 0;
+  G.cleared = false;
+  G.gameOverReason = null;
+  G.input.roll = 0; G.input.pitch = 0;
+  G.smooth.roll = 0; G.smooth.pitch = 0;
+  G.nextSpawnZ = 46;
+
+  if (G.mode === 'timeattack'){
+    buildTimeAttackCourse();
+    hudEndBtn.classList.add('hidden');
+  } else {
+    hudEndBtn.classList.remove('hidden');
+  }
+
+  G.phase = 'playing';
+  showScreen(null);
+  hud.classList.remove('hidden');
+  if (G.controlSource === 'joystick') joystickWrap.classList.remove('hidden');
+  startEngineSound();
+  updateHUD();
+}
+
+function finishPlaying(){
+  G.phase = 'result';
+  stopEngineSound();
+  showScreen('screen-result');
+  if (G.mode === 'timeattack'){
+    if (G.cleared){
+      playGoalSound();
+      resultTitle.textContent = 'ゴール！';
+      resultMain.textContent = `クリアタイム: ${(G.elapsed + G.penaltySeconds).toFixed(2)}秒`;
+    } else {
+      resultTitle.textContent = 'タイムオーバー';
+      resultMain.textContent = `到達距離: ${Math.round(G.distance)}m`;
+    }
+  } else {
+    resultTitle.textContent = '結果';
+    resultMain.textContent = `飛行距離: ${Math.round(G.distance)}m`;
+  }
+  resultSub.textContent = `衝突回数: ${G.collisionCount}回`;
+}
+
+/* ---------------- 衝突処理 ---------------- */
+function triggerCollision(entry){
+  entry.hit = true;
+  G.collisionCount++;
+  G.collisionTimer = CFG.collisionPenaltyDuration;
+  if (G.mode === 'timeattack') G.penaltySeconds += CFG.collisionPenaltySeconds;
+  playCollisionSound();
+  spawnParticleBurst(plane.position);
+  collisionFlash.classList.remove('flash-on');
+  void collisionFlash.offsetWidth; // reflow でアニメーション再トリガー
+  collisionFlash.classList.add('flash-on');
+}
+
+function checkCollisions(){
+  for (const entry of G.obstacles){
+    if (entry.hit) continue;
+    if (entry.type === 'cloud') continue;
+    const dz = plane.position.z - entry.z;
+    if (Math.abs(dz) > 6) continue;
+    if (entry.type === 'rock'){
+      const dx = plane.position.x - entry.x;
+      const dy = plane.position.y - entry.y;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      if (dist < CFG.playerRadius + entry.radius) triggerCollision(entry);
+    } else if (entry.type === 'gate'){
+      if (Math.abs(dz) < 1.6){
+        const radial = Math.hypot(plane.position.x - entry.x, plane.position.y - entry.y);
+        if (radial > CFG.gateRingRadius - CFG.gateTubeRadius && radial < CFG.gateRingRadius + CFG.gateTubeRadius){
+          triggerCollision(entry);
+        } else {
+          entry.hit = true; // 無事通過（穴の内側 or 完全に外側）
+        }
+      }
+    }
+  }
+}
+
+/* ---------------- 飛行モデル更新 ---------------- */
+let bankLerp = 0;
+function updateFlight(dt){
+  const penaltyActive = G.collisionTimer > 0;
+  if (penaltyActive) G.collisionTimer = Math.max(0, G.collisionTimer - dt);
+  const speedFactor = penaltyActive ? CFG.collisionSpeedFactor : 1;
+  const controlFactor = penaltyActive ? 0.15 : 1;
+
+  const targetRoll = G.input.roll;
+  const targetPitch = G.input.pitch;
+  const s = Math.min(1, dt * CFG.smoothingRate);
+  G.smooth.roll += (targetRoll - G.smooth.roll) * s;
+  G.smooth.pitch += (targetPitch - G.smooth.pitch) * s;
+
+  let lateralVel = G.smooth.roll * CFG.maxLateralSpeed * controlFactor;
+  let verticalVel = G.smooth.pitch * CFG.maxVerticalSpeed * controlFactor;
+  if (penaltyActive){
+    lateralVel += -plane.position.x * 0.8; // 中央へ軽く引き戻す
+  }
+
+  plane.position.x = clamp(plane.position.x + lateralVel*dt, -CFG.lateralLimit, CFG.lateralLimit);
+  plane.position.y = clamp(plane.position.y + verticalVel*dt, CFG.altMin, CFG.altMax);
+  plane.position.z += CFG.baseSpeed * speedFactor * dt;
+  G.distance = plane.position.z;
+
+  const targetBank = -G.smooth.roll * CFG.maxBank;
+  const targetPitchVisual = G.smooth.pitch * CFG.maxPitchVisual;
+  plane.rotation.z += (targetBank - plane.rotation.z) * Math.min(1, dt*8);
+  plane.rotation.x += (targetPitchVisual - plane.rotation.x) * Math.min(1, dt*8);
+  bankLerp += (plane.rotation.z - bankLerp) * Math.min(1, dt*6);
+
+  if (plane.userData.propeller) plane.userData.propeller.rotation.z += dt * 40;
+  updateEngineSound(speedFactor);
+}
+
+function updateCamera(dt){
+  const followDistance = 14, followHeight = 5;
+  const lagXY = Math.min(1, dt*4);
+  const lagZ = Math.min(1, dt*6);
+  camera.position.x += (plane.position.x - camera.position.x) * lagXY;
+  camera.position.y += (plane.position.y + followHeight - camera.position.y) * lagXY;
+  camera.position.z += ((plane.position.z - followDistance) - camera.position.z) * lagZ;
+  camera.lookAt(plane.position.x, plane.position.y + 1.2, plane.position.z + 12);
+  camera.rotateZ(bankLerp * 0.25);
+  ground.position.z = plane.position.z; // 地面を自機に追従させ、無限に続くように見せる
+}
+
+/* ---------------- 障害物スポーン／回収の更新 ---------------- */
+function updateObstacles(){
+  if (G.mode === 'endless'){
+    while (G.nextSpawnZ < plane.position.z + CFG.spawnAheadEndless){
+      spawnRandomObstacleAt(G.nextSpawnZ);
+      const t = Math.min(1, G.elapsed / CFG.densityRampTime);
+      const interval = THREE.MathUtils.lerp(CFG.spawnIntervalStart, CFG.spawnIntervalMin, t);
+      G.nextSpawnZ += interval;
+    }
+  }
+  for (let i = G.obstacles.length - 1; i >= 0; i--){
+    if (G.obstacles[i].z < plane.position.z - CFG.spawnBehindMargin) recycleObstacleAt(i);
+  }
+}
+
+/* ---------------- HUD更新 ---------------- */
+function updateHUD(){
+  if (G.mode === 'timeattack'){
+    const timeLeft = Math.max(0, CFG.timeBudget - G.elapsed - G.penaltySeconds);
+    hudPrimary.textContent = `残り時間: ${timeLeft.toFixed(1)}秒`;
+    const distLeft = Math.max(0, CFG.courseLength - G.distance);
+    hudSecondary.textContent = `ゴールまで: ${Math.round(distLeft)}m`;
+  } else {
+    hudPrimary.textContent = `飛行距離: ${Math.round(G.distance)}m`;
+    hudSecondary.textContent = '';
+  }
+  hudCollision.textContent = `衝突: ${G.collisionCount}回`;
+}
+
+function checkModeEndConditions(){
+  if (G.mode === 'timeattack' && G.phase === 'playing'){
+    if (G.distance >= CFG.courseLength){
+      G.cleared = true;
+      finishPlaying();
+    } else {
+      const timeLeft = CFG.timeBudget - G.elapsed - G.penaltySeconds;
+      if (timeLeft <= 0){
+        G.gameOverReason = 'timeup';
+        finishPlaying();
+      }
+    }
+  }
+}
+
+/* ---------------- メインループ ---------------- */
+let lastTime = performance.now();
+function animate(now){
+  requestAnimationFrame(animate);
+  const rawDt = (now - lastTime) / 1000;
+  lastTime = now;
+  const dt = Math.min(Math.max(rawDt, 0), 1/30); // 120Hz等でも動作速度が変わらないようクランプ
+  G.frames++;
+
+  if (G.phase === 'playing'){
+    updateFlight(dt);
+    updateObstacles();
+    checkCollisions();
+    updateHUD();
+    checkModeEndConditions();
+    G.elapsed += dt;
+  }
+  updateCamera(dt);
+  updateBursts(dt);
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+
+/* ---------------- テスト用API（Playwright等からの外部操作） ---------------- */
+window.__game.api = {
+  setRoll(v){ G.controlSource = 'api'; G.input.roll = clamp(v, -1, 1); },
+  setPitch(v){ G.controlSource = 'api'; G.input.pitch = clamp(v, -1, 1); },
+  selectMode(mode){ selectMode(mode); },
+  startGame(){
+    G.mode = pendingMode || G.mode;
+    calibrated = false;
+    gyroDataReceived = false;
+    requestControlAndBegin(() => beginPlaying());
+  },
+  restart(){ calibrated = false; beginPlaying(); },
+  endEndless(){ if (G.mode === 'endless' && G.phase === 'playing') finishPlaying(); },
+  backToTitle(){ G.phase = 'title'; showScreen('screen-title'); },
+};
+</script>
+</body>
+</html>
